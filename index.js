@@ -3,7 +3,7 @@ const express = require('express');
 const app = express();
 const cors = require("cors")
 const PORT = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 app.use(cors());
 app.use(express.json());
@@ -45,6 +45,19 @@ async function run() {
       }
     });
 
+    // Get single event by ID
+    app.get("/single-event/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
+        res.json(event);
+      } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // RSPV 
     app.post("/rsvps", async (req, res) => {
       try {
         const { eventId, firstName, lastName, phone, email, guests } = req.body;
@@ -63,6 +76,35 @@ async function run() {
         res.status(201).json(result);
       } catch (error) {
         res.status(500).json({ message: "Failed to submit RSVP" });
+      }
+    });
+
+    // Get all RSVPs for a specific event
+    app.get("/rsvps/:eventId", async (req, res) => {
+      try {
+        const { eventId } = req.params;
+        const rsvps = await rsvpsCollection.find({ eventId }).toArray();
+        res.json(rsvps);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch RSVPs" });
+      }
+    });
+
+    // Update event
+    app.put("/update-event/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const updatedEvent = req.body;
+
+        const result = await eventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedEvent }
+        );
+
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
       }
     });
 
