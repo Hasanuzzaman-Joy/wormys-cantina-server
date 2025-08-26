@@ -1,13 +1,82 @@
 require('dotenv').config();
 const express = require('express');
 const app = express();
-
+const cors = require("cors")
 const PORT = process.env.PORT || 3000;
+const { MongoClient, ServerApiVersion } = require('mongodb');
 
-app.get('/', (req, res) => {
-  res.send('Server is running');
+app.use(cors());
+app.use(express.json());
+
+const client = new MongoClient(process.env.MONGODB_URI, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
 });
+
+async function run() {
+  try {
+    await client.connect();
+
+    const eventsCollection = client.db("WormysCantina").collection("events");
+    const rsvpsCollection = client.db("WormysCantina").collection("rsvps");
+
+    // POST route to add event
+    app.post("/events", async (req, res) => {
+      try {
+        const eventData = req.body;
+
+        const result = await eventsCollection.insertOne(eventData);
+        res.status(201).json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // Get all events
+    app.get("/get-events", async (req, res) => {
+      try {
+        const events = await eventsCollection.find().toArray();
+        res.json(events);
+      } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    app.post("/rsvps", async (req, res) => {
+      try {
+        const { eventId, firstName, lastName, phone, email, guests } = req.body;
+
+        const rsvpData = {
+          eventId,
+          firstName,
+          lastName,
+          phone,
+          email,
+          guests,
+          createdAt: new Date(),
+        };
+
+        const result = await rsvpsCollection.insertOne(rsvpData);
+        res.status(201).json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to submit RSVP" });
+      }
+    });
+
+    // Send a ping to confirm a successful connection
+    await client.db("admin").command({ ping: 1 });
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+  }
+  finally { }
+}
+run().catch(console.dir);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+
+
