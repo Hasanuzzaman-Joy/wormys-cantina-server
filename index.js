@@ -1,9 +1,9 @@
-require('dotenv').config();
-const express = require('express');
+require("dotenv").config();
+const express = require("express");
 const app = express();
-const cors = require("cors")
+const cors = require("cors");
 const PORT = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 app.use(cors());
 app.use(express.json());
@@ -13,7 +13,7 @@ const client = new MongoClient(process.env.MONGODB_URI, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
@@ -23,18 +23,6 @@ async function run() {
     const eventsCollection = client.db("WormysCantina").collection("events");
     const rsvpsCollection = client.db("WormysCantina").collection("rsvps");
     const usersCollection = client.db("WormysCantina").collection("users");
-
-    // POST route to add event
-    app.post("/events", async (req, res) => {
-      try {
-        const eventData = req.body;
-
-        const result = await eventsCollection.insertOne(eventData);
-        res.status(201).json(result);
-      } catch (error) {
-        res.status(500).json({ message: "Internal server error" });
-      }
-    });
 
     // Get all events
     app.get("/get-events", async (req, res) => {
@@ -58,7 +46,71 @@ async function run() {
       }
     });
 
-    // RSPV 
+    // Get all RSVPs for a specific event
+    app.get("/rsvps/:eventId", async (req, res) => {
+      try {
+        const { eventId } = req.params;
+        const rsvps = await rsvpsCollection.find({ eventId }).toArray();
+        res.json(rsvps);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch RSVPs" });
+      }
+    });
+
+    // Check admin by email
+    app.get("/is-admin", async (req, res) => {
+      const { email } = req.query;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+
+      try {
+        const user = await usersCollection.findOne({ email });
+        if (!user) return res.status(404).json({ isAdmin: false });
+
+        const isAdmin = user.role === "admin";
+        res.json({ isAdmin });
+      } catch (err) {
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // Save a new user (register)
+    app.post("/users", async (req, res) => {
+      try {
+        const userData = req.body;
+
+        //  prevent duplicate emails
+        const existingUser = await usersCollection.findOne({
+          email: userData.email,
+        });
+        if (existingUser) {
+          return res.status(400).json({ message: "User already exists" });
+        }
+
+        const result = await usersCollection.insertOne({
+          ...userData,
+          role: "admin",
+          createdAt: new Date(),
+        });
+
+        res.status(201).json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // POST route to add event
+    app.post("/events", async (req, res) => {
+      try {
+        const eventData = req.body;
+
+        const result = await eventsCollection.insertOne(eventData);
+        res.status(201).json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    // RSPV
     app.post("/rsvps", async (req, res) => {
       try {
         const { eventId, firstName, lastName, phone, email, guests } = req.body;
@@ -77,40 +129,6 @@ async function run() {
         res.status(201).json(result);
       } catch (error) {
         res.status(500).json({ message: "Failed to submit RSVP" });
-      }
-    });
-
-    // Save a new user (register)
-    app.post("/users", async (req, res) => {
-      try {
-        const userData = req.body;
-
-        //  prevent duplicate emails
-        const existingUser = await usersCollection.findOne({ email: userData.email });
-        if (existingUser) {
-          return res.status(400).json({ message: "User already exists" });
-        }
-
-        const result = await usersCollection.insertOne({
-          ...userData,
-          role:"admin",
-          createdAt: new Date(),
-        });
-
-        res.status(201).json(result);
-      } catch (error) {
-        res.status(500).json({ message: "Internal server error" });
-      }
-    });
-
-    // Get all RSVPs for a specific event
-    app.get("/rsvps/:eventId", async (req, res) => {
-      try {
-        const { eventId } = req.params;
-        const rsvps = await rsvpsCollection.find({ eventId }).toArray();
-        res.json(rsvps);
-      } catch (error) {
-        res.status(500).json({ message: "Failed to fetch RSVPs" });
       }
     });
 
@@ -134,15 +152,14 @@ async function run() {
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
+  } finally {
   }
-  finally { }
 }
 run().catch(console.dir);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
-
-
-
