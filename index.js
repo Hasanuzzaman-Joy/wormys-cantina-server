@@ -18,7 +18,7 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const eventsCollection = client.db("WormysCantina").collection("events");
     const rsvpsCollection = client.db("WormysCantina").collection("rsvps");
@@ -88,7 +88,7 @@ async function run() {
 
         const result = await usersCollection.insertOne({
           ...userData,
-          role: "admin",
+          role: "user",
           createdAt: new Date(),
         });
 
@@ -151,10 +151,10 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
   }
 }
