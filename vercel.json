@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "builds": [{ "src": "src/server.js", "use": "@vercel/node" }],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "src/server.js",
+      "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    }
+  ],
+  "crons": [{ "path": "/api/cron/reminders", "schedule": "0 9 * * *" }]
+}
