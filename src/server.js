@@ -127,6 +127,10 @@ const transporter = smtpReady
       port: Number(process.env.SMTP_PORT),
       secure: Number(process.env.SMTP_PORT) === 465,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      // Fail fast on serverless instead of hanging until the platform kills the function.
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 8000,
     })
   : null;
 
@@ -332,10 +336,14 @@ async function processReminders() {
   const pending = orThrow(await supabase.from("reminders").select("*").eq("sent", false));
   const now = new Date();
   let sent = 0;
+  let failed = 0;
+  let lastError = null;
   for (const r of pending) {
     const trigger = new Date(r.event_date);
     trigger.setDate(trigger.getDate() - Number(r.reminder_days_before || 2));
-    if (now >= trigger) {
+    if (now < trigger) continue; // not due yet
+    // Each send is isolated — one failure must not abort the whole run.
+    try {
       await sendEmail({
         to: r.email,
         subject: `Reminder: ${r.event_name || "Wormy's Cantina event"} is coming up!`,
@@ -349,9 +357,13 @@ async function processReminders() {
       });
       orThrow(await supabase.from("reminders").update({ sent: true, sent_at: new Date().toISOString() }).eq("id", r.id));
       sent += 1;
+    } catch (err) {
+      failed += 1;
+      lastError = err.code ? `${err.code}: ${err.message}` : err.message;
+      console.error(`[reminders] send failed for ${r.email}: ${lastError}`);
     }
   }
-  return { pending: pending.length, sent };
+  return { pending: pending.length, sent, failed, lastError };
 }
 
 /* ── Health (no DB needed) ── */
@@ -712,10 +724,12 @@ app.post("/api/admin/events/:id/test-emails", authGuard, async (req, res, next) 
 app.post("/api/admin/reminders/run", authGuard, async (_req, res, next) => {
   try {
     const result = await processReminders();
-    return res.json({
-      message: `Reminder run complete — ${result.sent} sent, ${result.pending} pending in queue.`,
-      ...result,
-    });
+    const msg =
+      `Reminder run complete — ${result.sent} sent` +
+      (result.failed ? `, ${result.failed} failed` : "") +
+      `, ${result.pending} in queue.` +
+      (result.lastError ? ` Last email error: ${result.lastError}` : "");
+    return res.json({ message: msg, ...result });
   } catch (err) {
     next(err);
   }
