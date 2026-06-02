@@ -5,7 +5,7 @@ const morgan = require("morgan");
 const path = require("path");
 const { z } = require("zod");
 const cron = require("node-cron");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const multer = require("multer");
 const { Parser } = require("json2csv");
 const admin = require("firebase-admin");
@@ -115,38 +115,32 @@ const authGuard = async (req, res, next) => {
   }
 };
 
-/* ── Email ── */
-const senderEmail = process.env.SMTP_FROM || "events@wormyscantina.com";
-const senderName = process.env.SMTP_FROM_NAME || "Wormy (Wormy's Cantina)";
-const smtpReady = Boolean(
-  process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS
-);
-const transporter = smtpReady
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: Number(process.env.SMTP_PORT) === 465,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      // Fail fast on serverless instead of hanging until the platform kills the function.
-      connectionTimeout: 8000,
-      greetingTimeout: 8000,
-      socketTimeout: 8000,
-    })
-  : null;
+/* ── Email (Resend HTTP API — reliable on serverless, unlike raw SMTP) ── */
+// From-address must be on a domain verified in Resend. EMAIL_FROM falls back to
+// the legacy SMTP_FROM so existing config keeps working.
+const senderEmail = process.env.EMAIL_FROM || process.env.SMTP_FROM || "onboarding@resend.dev";
+const senderName = process.env.EMAIL_FROM_NAME || process.env.SMTP_FROM_NAME || "Wormy (Wormy's Cantina)";
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const emailReady = Boolean(resend);
+if (!emailReady) {
+  console.warn("[email] RESEND_API_KEY not set — emails will be skipped until it is configured.");
+}
 
 const sendEmail = async ({ to, subject, html, replyTo }) => {
-  if (!transporter) {
-    console.log(`[email] SMTP not configured — skipping: ${subject} → ${to}`);
+  if (!resend) {
+    console.log(`[email] RESEND_API_KEY not set — skipping: ${subject} → ${to}`);
     return { skipped: true };
   }
-  await transporter.sendMail({
+  const { data, error } = await resend.emails.send({
     from: `${senderName} <${senderEmail}>`,
     to,
     subject,
     html,
     ...(replyTo ? { replyTo } : {}),
   });
-  return { skipped: false };
+  // The Resend SDK returns errors in the response rather than throwing.
+  if (error) throw new Error(error.message || "Resend send failed");
+  return { id: data?.id };
 };
 
 const escapeHtml = (value) =>
@@ -512,8 +506,8 @@ app.post("/api/contact", async (req, res) => {
 
   const recipient = process.env.CONTACT_RECIPIENT || process.env.EVENT_MANAGER_EMAIL || senderEmail;
 
-  if (!transporter) {
-    console.log(`[contact] SMTP not configured — message from ${parsed.data.email} not delivered.`);
+  if (!resend) {
+    console.log(`[contact] Email not configured — message from ${parsed.data.email} not delivered.`);
     return res.json({ message: "Thanks for reaching out — we'll get back to you soon." });
   }
   try {
@@ -685,8 +679,8 @@ app.post("/api/admin/events/:id/test-emails", authGuard, async (req, res, next) 
     const event = eventFromRow(eventRow);
 
     const to = (req.body?.to || process.env.EVENT_MANAGER_EMAIL || req.user.email || senderEmail).trim();
-    if (!transporter) {
-      return res.status(400).json({ message: "SMTP is not configured on the server, so test emails cannot be sent yet." });
+    if (!resend) {
+      return res.status(400).json({ message: "Email is not configured on the server (RESEND_API_KEY missing), so test emails cannot be sent yet." });
     }
 
     const sampleRsvp = {
