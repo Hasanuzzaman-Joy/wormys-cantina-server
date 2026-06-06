@@ -10,6 +10,7 @@ const multer = require("multer");
 const { Parser } = require("json2csv");
 const admin = require("firebase-admin");
 const { createClient } = require("@supabase/supabase-js");
+const { formatTimeUS } = require("./formatTime");
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
@@ -17,17 +18,42 @@ const PORT = Number(process.env.PORT || 5000);
 // Behind a hosting proxy (Vercel/Render/Nginx) so req.protocol reflects https.
 app.set("trust proxy", true);
 
-/* ── CORS ── */
-const allowedOrigins = (process.env.CLIENT_ORIGIN || "")
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
+/* ── CORS ──
+   Set CLIENT_ORIGIN on Vercel to every deployed web origin, comma-separated, e.g.:
+   https://wormyscantina.com,https://www.wormyscantina.com,http://localhost:5173
+   www / apex pairs are expanded automatically when one is listed. */
+function expandOriginVariants(origins) {
+  const out = new Set(origins);
+  for (const raw of origins) {
+    try {
+      const u = new URL(raw);
+      const host = u.hostname;
+      const base = `${u.protocol}//`;
+      if (host.startsWith("www.")) {
+        out.add(`${base}${host.slice(4)}`);
+      } else {
+        out.add(`${base}www.${host}`);
+      }
+    } catch {
+      /* ignore malformed entries */
+    }
+  }
+  return [...out];
+}
+
+const allowedOrigins = expandOriginVariants(
+  (process.env.CLIENT_ORIGIN || "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean)
+);
 
 app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true); // same-origin / curl / server-to-server
       if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return cb(null, true);
+      console.warn(`[cors] Blocked origin: ${origin} (allowed: ${allowedOrigins.join(", ") || "none configured"})`);
       return cb(new Error(`Origin ${origin} is not allowed by CORS`));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -164,7 +190,7 @@ const buildConfirmationHtml = (event, rsvp) => `
   <table style="border-collapse:collapse;margin:12px 0;font-size:15px;">
     ${detailRow("Event", event.title)}
     ${detailRow("Date", event.date)}
-    ${detailRow("Time", event.time)}
+    ${detailRow("Time", formatTimeUS(event.time))}
     ${detailRow("Location", event.address)}
     ${detailRow("Guests", rsvp.guests)}
     ${detailRow("Notes", event.notes)}
@@ -181,7 +207,7 @@ const buildManagerNotificationHtml = (event, rsvp) => `
     ${detailRow("Phone", rsvp.phone)}
     ${detailRow("Guests", rsvp.guests)}
     ${detailRow("Message", rsvp.message)}
-    ${detailRow("Event date/time", `${event.date} at ${event.time}`)}
+    ${detailRow("Event date/time", `${event.date} at ${formatTimeUS(event.time)}`)}
     ${detailRow("Location", event.address)}
   </table>
 `;
@@ -192,7 +218,7 @@ const buildReminderHtml = (r) => `
   <table style="border-collapse:collapse;margin:12px 0;font-size:15px;">
     ${detailRow("Event", r.eventName)}
     ${detailRow("Date", r.eventDate)}
-    ${detailRow("Time", r.eventTime)}
+    ${detailRow("Time", formatTimeUS(r.eventTime))}
     ${detailRow("Location", r.eventAddress)}
   </table>
   <p>We look forward to seeing you!</p>
